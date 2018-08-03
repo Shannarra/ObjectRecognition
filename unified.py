@@ -19,7 +19,7 @@ def get_files_in(name):
 
     for directory, subdirectories, files in os.walk(name):
         for filename in files:
-            all_files.append('{}{}'.format(name, filename))
+            all_files.append('{}{}'.format(name, filename))  # folder/filename.extension
 
     return all_files
 
@@ -100,13 +100,13 @@ def main(port: int, save_last_frame: bool, crop_last: bool = False):
             loc = np.where(res > threshold)
 
             if template_item.endswith('_up.jpg'):
-                draw_square(True, loc, frame, w, h)
+                draw_square(True, loc, frame, w, h, (0, 0, 255), (255, 0, 255))
             else:
                 draw_square(False, loc, frame, w, h)
             cv2.imshow("cam", frame)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
-                kill = True
+                kill = True 
 
                 if save_last_frame:
                     cv2.imwrite('result/last_frame.jpg', frame)  # -> save the last captured frame
@@ -124,4 +124,5 @@ def main(port: int, save_last_frame: bool, crop_last: bool = False):
 
 
 if __name__ == '__main__':
-    main(1, True, True)
+    print(templates)
+    main(1, True, False)
