@@ -8,9 +8,9 @@ from appJar import gui
 
 import cv2
 import numpy as np
+from PIL import Image
 
-from handle_cap_cutting import handle_cap_cutting
-
+import serial
 
 class Gui:
     """"
@@ -33,7 +33,7 @@ class Gui:
         self.app = gui("Choose your action", "620x480")
 
         #: Image path for the full images
-        self.FULL_IMAGE_PATH = "./result/snimka.jpeg"
+        self.FULL_IMAGE_PATH = "./result/"
 
         #: The images used for recognition path
         self.RECOGNIZE_PATH_IMAGES = "./src/"
@@ -68,6 +68,24 @@ class Gui:
         #: The Real Time Recognition Thread
         self._REAL_TIME_THREAD = None
 
+    @staticmethod
+    def _handle_cap_cutting(picture, cords, loc):
+        """
+        Handle cap_up recognition
+        :param picture: The picture to cut
+        :param cords: The coordinates of the cap
+        :param loc: Where to save it
+        :return: Weather the operation succeeded
+        """
+        try:
+            img = Image.open(picture)
+            cropped_image = img.crop(cords)
+            cropped_image.save(loc)
+            return True
+        except Exception as e:
+            print(e)
+            return False
+
     def _handle_cap_up_button(self):
         """
             Handles an upside bottle cap and saves it as a template image.
@@ -75,8 +93,8 @@ class Gui:
         """
         _, frame = self.cap.read()
         try:
-            cv2.imwrite(self.FULL_IMAGE_PATH, frame)
-            if handle_cap_cutting(self.FULL_IMAGE_PATH, (self._COORD_A, self._COORD_B, self._COORD_C, self._COORD_D),
+            cv2.imwrite(self.FULL_IMAGE_PATH+"capup.jpeg", frame)
+            if self._handle_cap_cutting(self.FULL_IMAGE_PATH+"capup.jpeg", (self._COORD_A, self._COORD_B, self._COORD_C, self._COORD_D),
                                   self.RECOGNIZE_PATH_IMAGES+"cap_up.jpeg"):
                 self.app.infoBox("Success", "The cap was saved. You can use it now.")
                 return True
@@ -93,17 +111,17 @@ class Gui:
             :returns: boolean -> Whether the process was successful
         """
         _, frame = self.cap.read()
+        _, frame = self.cap.read()
         try:
-            cv2.imwrite(self.FULL_IMAGE_PATH, frame)
-            if handle_cap_cutting(self.RECOGNIZE_PATH_IMAGES, (self._COORD_A, self._COORD_B, self._COORD_C, self._COORD_D), self.RECOGNIZE_PATH_IMAGES + "cap_down.jpg"):
+            cv2.imwrite(self.FULL_IMAGE_PATH + "DOWN.jpeg", frame)
+            if self._handle_cap_cutting(self.FULL_IMAGE_PATH + "DOWN.jpeg", (self._COORD_A, self._COORD_B, self._COORD_C, self._COORD_D), self.RECOGNIZE_PATH_IMAGES + "cap_down.jpeg"):
                 self.app.infoBox("Success", "The cap was saved. You can use it now.")
                 return True
             else:
-                self.app.errorBox("Error", "The cap was not saved, please try again.")
+                self.app.errorBox("Error", "Sorry, the cap was not saved, please try again.")
                 return False
         except Exception as e:
             print(e)
-            self.app.errorBox("Error", "Fatal error.")
             return False
 
     @staticmethod  # we don't need 'self' here.
@@ -146,14 +164,16 @@ class Gui:
                     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     res = cv2.matchTemplate(frame_gray, template, cv2.TM_CCOEFF_NORMED)
                     loc = np.where(res > threshold)
-                    if filename.endswith('_up.jpg'):
+                    if filename.endswith('_up.jpeg'):
                         self._draw_square(True, loc, frame, w, h)
-                    if filename.endswith('_down.jpg'):
-                        self._draw_square(True, loc, frame, w, h)
+                    if filename.endswith('_down.jpeg'):
+                        self._draw_square(False, loc, frame, w, h, (0, 0, 255))
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         kill = True
                     cv2.imshow("cam", frame)
-
+            ser = serial.Serial('COM4', 9600)
+            ser.write(b'a')
+            ser = None
             if kill:
                 break
         self.cap.release()
@@ -170,7 +190,7 @@ class Gui:
         if button == "CapUp":
             # start working on 'CapUp' actions
             if self._UP_THREAD is None:
-                self._UP_THREAD = threading.Thread(name="CapUpThread", target=self._handle_cap_down_button)
+                self._UP_THREAD = threading.Thread(name="CapUpThread", target=self._handle_cap_up_button)
 
             if self._UP_THREAD.is_alive():
                 return self.app.errorBox("ERROR", "You need to wait the process to finish.")
@@ -182,7 +202,7 @@ class Gui:
             if self._DOWN_THREAD is None:
                 self._DOWN_THREAD = threading.Thread(name="CapDownThread", target=self._handle_cap_down_button)
 
-            elif self._DOWN_THREAD.is_alive():
+            if self._DOWN_THREAD.is_alive():
                 return self.app.errorBox("ERROR", "You need to wait the process to finish")
             else:
                 self._DOWN_THREAD.start()
@@ -222,5 +242,5 @@ class Gui:
 
 
 if __name__ == '__main__':
-    c = Gui(175, 103, 534, 427, video_device=0)
+    c = Gui(175, 103, 534, 427, video_device=1)
     c.run_app()
