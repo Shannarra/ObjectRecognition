@@ -1,16 +1,13 @@
 __authors__ = ["Just Yuri", 'Petaaar']
 
-
-import threading
-import os
-
 from appJar import gui
-
+from threading import Thread
+from PIL import Image
+from serial import Serial
+import os
 import cv2
 import numpy as np
-from PIL import Image
 
-import serial
 
 class Gui:
     """"
@@ -68,6 +65,9 @@ class Gui:
         #: The Real Time Recognition Thread
         self._REAL_TIME_THREAD = None
 
+        # the serial port connection
+        self._serialConnection = None
+
     @staticmethod
     def _handle_cap_cutting(picture, cords, loc):
         """
@@ -97,6 +97,7 @@ class Gui:
             if self._handle_cap_cutting(self.FULL_IMAGE_PATH+"capup.jpeg", (self._COORD_A, self._COORD_B, self._COORD_C, self._COORD_D),
                                   self.RECOGNIZE_PATH_IMAGES+"cap_up.jpeg"):
                 self.app.infoBox("Success", "The cap was saved. You can use it now.")
+                self._UP_THREAD = None
                 return True
             else:
                 self.app.errorBox("Error", "Sorry, the cap was not saved, please try again.")
@@ -116,6 +117,7 @@ class Gui:
             cv2.imwrite(self.FULL_IMAGE_PATH + "DOWN.jpeg", frame)
             if self._handle_cap_cutting(self.FULL_IMAGE_PATH + "DOWN.jpeg", (self._COORD_A, self._COORD_B, self._COORD_C, self._COORD_D), self.RECOGNIZE_PATH_IMAGES + "cap_down.jpeg"):
                 self.app.infoBox("Success", "The cap was saved. You can use it now.")
+                self._DOWN_THREAD = None
                 return True
             else:
                 self.app.errorBox("Error", "Sorry, the cap was not saved, please try again.")
@@ -124,8 +126,7 @@ class Gui:
             print(e)
             return False
 
-    @staticmethod  # we don't need 'self' here.
-    def _draw_square(upside, loc, frame, w, h, rect_color=(255, 255, 0), text_color=(0, 255, 0)):
+    def _draw_square(self, upside, loc, frame, w, h, rect_color=(255, 255, 0), text_color=(0, 255, 0)):
         """
         Draws the square around the cap.
         Credits to Petaaar for writing this function.
@@ -138,13 +139,24 @@ class Gui:
         :param text_color: Color of the text (RGB)
         :returns: None
         """
+
+        self._shut_down_lamps()
+
         if upside:
             text = "UPSIDE"
+            color = b'G'
         else:
             text = "DOWNSIDE"
+            color = b'R'
         for pt in zip(*loc[::-1]):
             cv2.rectangle(frame, pt, (pt[0] + w, pt[1] + h), rect_color, 1)
             cv2.putText(frame, text, (50, 50), cv2.FONT_HERSHEY_COMPLEX_SMALL, .7, text_color)
+            self._serialConnection.write(color)
+
+    def _shut_down_lamps(self):
+        self._serialConnection.write(b'r')
+        self._serialConnection.write(b'b')
+        self._serialConnection.write(b'g')
 
     def _handle_image_recognition(self):
         """
@@ -154,32 +166,35 @@ class Gui:
         :returns:
         """
         kill = False
+        self._serialConnection = Serial('COM4', 9600)
         while 1:
+
             for directory, subdirectories, files in os.walk(self.RECOGNIZE_PATH_IMAGES):
                 for filename in files:
                     template = cv2.imread(self.RECOGNIZE_PATH_IMAGES+filename, 0)
                     w, h = template.shape[::-1]
                     threshold = 0.9
+
                     _, frame = self.cap.read()
                     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     res = cv2.matchTemplate(frame_gray, template, cv2.TM_CCOEFF_NORMED)
                     loc = np.where(res > threshold)
+
                     if filename.endswith('_up.jpeg'):
                         self._draw_square(True, loc, frame, w, h)
-                    if filename.endswith('_down.jpeg'):
+                    elif filename.endswith('_down.jpeg'):
                         self._draw_square(False, loc, frame, w, h, (0, 0, 255))
+
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         kill = True
-                    cv2.imshow("cam", frame)
-            ser = serial.Serial('COM4', 9600)
-            ser.write(b'a')
-            ser = None
+
+                    cv2.imshow("Camera view", frame)
+
             if kill:
                 break
         self.cap.release()
         cv2.destroyAllWindows()
-        if self._REAL_TIME_THREAD is not None:
-            self._REAL_TIME_THREAD = None  # clear the thread, so it can be used again.
+        self._REAL_TIME_THREAD = None  # clear the thread, so it can be used again.
 
     def _handle_buttons(self, button):
         """
@@ -190,7 +205,7 @@ class Gui:
         if button == "CapUp":
             # start working on 'CapUp' actions
             if self._UP_THREAD is None:
-                self._UP_THREAD = threading.Thread(name="CapUpThread", target=self._handle_cap_up_button)
+                self._UP_THREAD = Thread(name="CapUpThread", target=self._handle_cap_up_button)
 
             if self._UP_THREAD.is_alive():
                 return self.app.errorBox("ERROR", "You need to wait the process to finish.")
@@ -200,7 +215,7 @@ class Gui:
         if button == "CapDown":
             # start working on 'CapDown' actions
             if self._DOWN_THREAD is None:
-                self._DOWN_THREAD = threading.Thread(name="CapDownThread", target=self._handle_cap_down_button)
+                self._DOWN_THREAD = Thread(name="CapDownThread", target=self._handle_cap_down_button)
 
             if self._DOWN_THREAD.is_alive():
                 return self.app.errorBox("ERROR", "You need to wait the process to finish")
@@ -210,7 +225,7 @@ class Gui:
         if button == "RealTime":
             # start real-time capturing
             if self._REAL_TIME_THREAD is None:
-                self._REAL_TIME_THREAD = threading.Thread(name="RealTimeThread", target=self._handle_image_recognition)
+                self._REAL_TIME_THREAD = Thread(name="RealTimeThread", target=self._handle_image_recognition)
                 try:
                     self._REAL_TIME_THREAD.start()
                 except Exception:
@@ -239,6 +254,9 @@ class Gui:
         """
         self._build_gui()
         self.app.go()
+
+    def __del__(self):
+        self._shut_down_lamps()
 
 
 if __name__ == '__main__':
